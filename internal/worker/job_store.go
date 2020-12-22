@@ -54,8 +54,11 @@ func (store *MemoryJobStore) UpdateJobStatus(job *Job, status string) error {
 	return nil
 }
 
-// FindJob returns a Job given its ID. This method returns an error if the Job cannot be found.
+// FindJob returns a copy of the Job if it is found. Otherwise, returns an error.
 func (store *MemoryJobStore) FindJob(id string) (*Job, error) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
 	job, ok := store.Jobs[id]
 	if !ok {
 		return nil, errors.New("worker: Unable to find job in store")

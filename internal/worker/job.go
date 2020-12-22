@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
@@ -95,7 +96,7 @@ func (job *Job) Stop(store JobStore) error {
 		return nil
 	}
 
-	err = process.Kill()
+	err = process.Signal(syscall.SIGTERM)
 	if err != nil {
 		return errors.Wrap(err, "Error stopping job")
 	}

@@ -11,6 +11,14 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
+// The following constants are possible values for the Status of a Job
+const (
+	COMPLETED = "completed"
+	ERRORED   = "errored"
+	RUNNING   = "running"
+	STOPPED   = "stopped"
+)
+
 // Job represents a job created to run a Linux command
 type Job struct {
 	ID               string
@@ -36,14 +44,14 @@ func (job *Job) Start(store JobStore) error {
 
 	err := cmd.Start()
 	if err != nil {
-		job.Status = "errored"
+		job.Status = ERRORED
 		store.AddJob(job)
 
 		return errors.Wrap(err, "Unable to start job")
 	}
 
 	job.Pid = cmd.Process.Pid
-	job.Status = "running"
+	job.Status = RUNNING
 	store.AddJob(job)
 
 	// This goroutine will exit when the command completes or is stopped by calling Stop
@@ -63,9 +71,9 @@ func (job *Job) Wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, 
 	if err != nil {
 		// TODO: Add a logger instead of printing to stdout
 		fmt.Println(err)
-		newStatus = "errored"
+		newStatus = ERRORED
 	} else {
-		newStatus = "completed"
+		newStatus = COMPLETED
 	}
 
 	if job.isRunning() {
@@ -92,7 +100,7 @@ func (job *Job) Stop(store JobStore) error {
 		return errors.Wrap(err, "Error stopping job")
 	}
 
-	store.UpdateJobResults(job, "stopped", "", "")
+	store.UpdateJobResults(job, STOPPED, "", "")
 
 	return nil
 }
@@ -104,5 +112,5 @@ func (job *Job) parseCommand() {
 }
 
 func (job *Job) isRunning() bool {
-	return job.Status == "running"
+	return job.Status == RUNNING
 }

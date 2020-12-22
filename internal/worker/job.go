@@ -20,6 +20,8 @@ const (
 	STOPPED   = "stopped"
 )
 
+const commandWithArgMinParts = 2
+
 // Job represents a job created to run a Linux command
 type Job struct {
 	ID               string
@@ -108,8 +110,14 @@ func (job *Job) Stop(store JobStore) error {
 
 func (job *Job) parseCommand() {
 	splitCommand := strings.Split(job.RawCommand, " ")
-	job.commandName = splitCommand[0]
-	job.commandArguments = splitCommand[1:]
+
+	if len(splitCommand) < commandWithArgMinParts {
+		job.commandName = job.RawCommand
+		job.commandArguments = []string{}
+	} else {
+		job.commandName = splitCommand[0]
+		job.commandArguments = splitCommand[1:]
+	}
 }
 
 func (job *Job) isRunning() bool {

@@ -23,12 +23,13 @@ const (
 // Job represents a job created to run a Linux command
 type Job struct {
 	ID       string
-	Pid      int
+	Pid      int `json:"-"`
 	Status   string
 	Stdout   string
 	Stderr   string
 	Command  string
 	ExitCode string
+	User     string
 }
 
 // Start creates a process to run the command and save the Job to the given store.

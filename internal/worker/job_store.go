@@ -31,6 +31,7 @@ func (store *MemoryJobStore) AddJob(job *Job) {
 		Stderr:   job.Stderr,
 		Command:  job.Command,
 		ExitCode: job.ExitCode,
+		User:     job.User,
 	}
 	store.Jobs[job.ID] = jobCopy
 }
@@ -93,6 +94,7 @@ func (store *MemoryJobStore) FindJob(id string) (Job, error) {
 		Stderr:   job.Stderr,
 		Command:  job.Command,
 		ExitCode: job.ExitCode,
+		User:     job.User,
 	}
 
 	return jobCopy, nil

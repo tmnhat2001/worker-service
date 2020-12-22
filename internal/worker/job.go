@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/pkg/errors"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -23,7 +24,7 @@ type Job struct {
 }
 
 // Start creates a process to run the command and save the Job to the given store.
-func (job *Job) Start(store JobStore) {
+func (job *Job) Start(store JobStore) error {
 	job.parseCommand()
 	cmd := exec.Command(job.commandName, job.commandArguments...)
 
@@ -38,7 +39,7 @@ func (job *Job) Start(store JobStore) {
 		job.Status = "errored"
 		store.AddJob(job)
 
-		return
+		return errors.Wrap(err, "Unable to start job")
 	}
 
 	job.Pid = cmd.Process.Pid
@@ -47,6 +48,8 @@ func (job *Job) Start(store JobStore) {
 
 	// This goroutine will exit when the command completes or is stopped by calling Stop
 	go job.Wait(cmd, &stdout, &stderr, store)
+
+	return nil
 }
 
 // Wait waits for the command to finish and update the Job results in the store.
@@ -74,9 +77,7 @@ func (job *Job) Wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, 
 func (job *Job) Stop(store JobStore) error {
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
-		// TODO: Add a logger instead of printing to stdout
-		fmt.Println(err)
-		return err
+		return errors.Wrap(err, "Error finding job's process")
 	}
 
 	store.Lock()
@@ -88,9 +89,7 @@ func (job *Job) Stop(store JobStore) error {
 
 	err = process.Kill()
 	if err != nil {
-		// TODO: Add a logger instead of printing to stdout
-		fmt.Println(err)
-		return err
+		return errors.Wrap(err, "Error stopping job")
 	}
 
 	store.UpdateJobResults(job, "stopped", "", "")

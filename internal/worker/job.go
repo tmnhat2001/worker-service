@@ -30,6 +30,7 @@ type Job struct {
 	Stdout           string
 	Stderr           string
 	RawCommand       string
+	ExitCode         int
 	commandName      string
 	commandArguments []string
 }
@@ -58,13 +59,12 @@ func (job *Job) Start(store JobStore) error {
 	store.AddJob(job)
 
 	// This goroutine will exit when the command completes or is stopped by calling Stop
-	go job.Wait(cmd, &stdout, &stderr, store)
+	go job.wait(cmd, &stdout, &stderr, store)
 
 	return nil
 }
 
-// Wait waits for the command to finish and update the Job results in the store.
-func (job *Job) Wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, store JobStore) {
+func (job *Job) wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, store JobStore) {
 	err := cmd.Wait()
 
 	store.Lock()
@@ -80,8 +80,12 @@ func (job *Job) Wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, 
 	}
 
 	if job.isRunning() {
-		store.UpdateJobResults(job, newStatus, stdout.String(), stderr.String())
+		job.Status = newStatus
 	}
+	job.Stdout = stdout.String()
+	job.Stderr = stderr.String()
+	job.ExitCode = cmd.ProcessState.ExitCode()
+	store.UpdateJobResults(job)
 }
 
 // Stop attempts to stop a running command and update the Job results in the store.
@@ -103,7 +107,8 @@ func (job *Job) Stop(store JobStore) error {
 		return errors.Wrap(err, "Error stopping job")
 	}
 
-	store.UpdateJobResults(job, STOPPED, "", "")
+	job.Status = STOPPED
+	store.UpdateJobResults(job)
 
 	return nil
 }

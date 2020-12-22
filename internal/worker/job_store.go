@@ -8,7 +8,7 @@ import (
 // JobStore defines an interface for saving, updating and finding a Job.
 type JobStore interface {
 	AddJob(job *Job)
-	UpdateJobResults(job *Job, status string, stdout string, stderr string) error
+	UpdateJobResults(job *Job) error
 	Lock()
 	Unlock()
 	FindJob(id string) (*Job, error)
@@ -27,15 +27,13 @@ func (store *MemoryJobStore) AddJob(job *Job) {
 
 // UpdateJobResults updates the status and outputs of the given job in the store.
 // This method returns an error if the Job cannot be found in the store.
-func (store *MemoryJobStore) UpdateJobResults(job *Job, status string, stdout string, stderr string) error {
-	storedJob, ok := store.Jobs[job.ID]
+func (store *MemoryJobStore) UpdateJobResults(job *Job) error {
+	_, ok := store.Jobs[job.ID]
 	if !ok {
 		return errors.New("worker: Unable to find job in store")
 	}
 
-	storedJob.Status = status
-	storedJob.Stdout = stdout
-	storedJob.Stderr = stderr
+	store.Jobs[job.ID] = job
 
 	return nil
 }

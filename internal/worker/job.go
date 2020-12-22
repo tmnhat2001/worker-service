@@ -67,9 +67,6 @@ func (job *Job) Start(store JobStore) error {
 func (job *Job) wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, store JobStore) {
 	err := cmd.Wait()
 
-	store.Lock()
-	defer store.Unlock()
-
 	var newStatus string
 	if err != nil {
 		// TODO: Add a logger instead of printing to stdout
@@ -79,13 +76,13 @@ func (job *Job) wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, 
 		newStatus = COMPLETED
 	}
 
-	if job.isRunning() {
+	if !commandStoppedBySignal(cmd) {
 		job.Status = newStatus
 	}
 	job.Stdout = stdout.String()
 	job.Stderr = stderr.String()
 	job.ExitCode = cmd.ProcessState.ExitCode()
-	store.UpdateJobResults(job)
+	store.UpdateJob(job)
 }
 
 // Stop attempts to stop a running command and update the Job results in the store.
@@ -94,9 +91,6 @@ func (job *Job) Stop(store JobStore) error {
 	if err != nil {
 		return errors.Wrap(err, "Error finding job's process")
 	}
-
-	store.Lock()
-	defer store.Unlock()
 
 	if !job.isRunning() {
 		return nil
@@ -107,8 +101,7 @@ func (job *Job) Stop(store JobStore) error {
 		return errors.Wrap(err, "Error stopping job")
 	}
 
-	job.Status = STOPPED
-	store.UpdateJobResults(job)
+	store.UpdateJobStatus(job, STOPPED)
 
 	return nil
 }
@@ -127,4 +120,8 @@ func (job *Job) parseCommand() {
 
 func (job *Job) isRunning() bool {
 	return job.Status == RUNNING
+}
+
+func commandStoppedBySignal(cmd *exec.Cmd) bool {
+	return cmd.ProcessState.ExitCode() == -1
 }

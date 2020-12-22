@@ -8,9 +8,8 @@ import (
 // JobStore defines an interface for saving, updating and finding a Job.
 type JobStore interface {
 	AddJob(job *Job)
-	UpdateJobResults(job *Job) error
-	Lock()
-	Unlock()
+	UpdateJob(job *Job) error
+	UpdateJobStatus(job *Job, status string) error
 	FindJob(id string) (*Job, error)
 }
 
@@ -25,9 +24,11 @@ func (store *MemoryJobStore) AddJob(job *Job) {
 	store.Jobs[job.ID] = job
 }
 
-// UpdateJobResults updates the status and outputs of the given job in the store.
-// This method returns an error if the Job cannot be found in the store.
-func (store *MemoryJobStore) UpdateJobResults(job *Job) error {
+// UpdateJob updates the values of the given Job in the store
+func (store *MemoryJobStore) UpdateJob(job *Job) error {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
 	_, ok := store.Jobs[job.ID]
 	if !ok {
 		return errors.New("worker: Unable to find job in store")
@@ -38,14 +39,19 @@ func (store *MemoryJobStore) UpdateJobResults(job *Job) error {
 	return nil
 }
 
-// Lock acquires a lock on the store
-func (store *MemoryJobStore) Lock() {
+// UpdateJobStatus updates the Status of the given Job in the store
+func (store *MemoryJobStore) UpdateJobStatus(job *Job, status string) error {
 	store.mutex.Lock()
-}
+	defer store.mutex.Unlock()
 
-// Unlock releases a lock on the store
-func (store *MemoryJobStore) Unlock() {
-	store.mutex.Unlock()
+	_, ok := store.Jobs[job.ID]
+	if !ok {
+		return errors.New("worker: Unable to find job in store")
+	}
+
+	store.Jobs[job.ID].Status = status
+
+	return nil
 }
 
 // FindJob returns a Job given its ID. This method returns an error if the Job cannot be found.

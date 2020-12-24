@@ -63,41 +63,33 @@ func (job *Job) Start(store JobStore) error {
 func (job *Job) wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, store JobStore) {
 	err := cmd.Wait()
 
-	var newStatus string
-	if err != nil {
+	if commandStoppedBySignal(cmd) {
+		job.Status = Stopped
+	} else if err != nil {
 		// TODO: Add a logger instead of printing to stdout
 		fmt.Println(err)
-		newStatus = Errored
+		job.Status = Errored
 	} else {
-		newStatus = Completed
+		job.Status = Completed
 	}
 
-	if !commandStoppedBySignal(cmd) {
-		job.Status = newStatus
-	}
 	job.Stdout = stdout.String()
 	job.Stderr = stderr.String()
 	job.ExitCode = cmd.ProcessState.ExitCode()
 	store.UpdateJob(job)
 }
 
-// Stop attempts to stop a running command and update the Job results in the store.
+// Stop attempts to stop a running command
 func (job *Job) Stop(store JobStore) error {
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
 		return errors.Wrap(err, "Error finding job's process")
 	}
 
-	if !job.isRunning() {
-		return nil
-	}
-
 	err = process.Signal(syscall.SIGTERM)
 	if err != nil {
 		return errors.Wrap(err, "Error stopping job")
 	}
-
-	store.UpdateJobStatus(job, Stopped)
 
 	return nil
 }

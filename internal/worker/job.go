@@ -14,31 +14,27 @@ import (
 
 // The following constants are possible values for the Status of a Job
 const (
-	COMPLETED = "completed"
-	ERRORED   = "errored"
-	RUNNING   = "running"
-	STOPPED   = "stopped"
+	Completed = "completed"
+	Errored   = "errored"
+	Running   = "running"
+	Stopped   = "stopped"
 )
-
-const commandWithArgMinParts = 2
 
 // Job represents a job created to run a Linux command
 type Job struct {
-	ID               string
-	Pid              int
-	Status           string
-	Stdout           string
-	Stderr           string
-	RawCommand       string
-	ExitCode         int
-	commandName      string
-	commandArguments []string
+	ID         string
+	Pid        int
+	Status     string
+	Stdout     string
+	Stderr     string
+	RawCommand string
+	ExitCode   int
 }
 
 // Start creates a process to run the command and save the Job to the given store.
 func (job *Job) Start(store JobStore) error {
-	job.parseCommand()
-	cmd := exec.Command(job.commandName, job.commandArguments...)
+	commandName, commandArguments := parseCommand(job.RawCommand)
+	cmd := exec.Command(commandName, commandArguments...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -48,14 +44,14 @@ func (job *Job) Start(store JobStore) error {
 
 	err := cmd.Start()
 	if err != nil {
-		job.Status = ERRORED
+		job.Status = Errored
 		store.AddJob(job)
 
 		return errors.Wrap(err, "Unable to start job")
 	}
 
 	job.Pid = cmd.Process.Pid
-	job.Status = RUNNING
+	job.Status = Running
 	store.AddJob(job)
 
 	// This goroutine will exit when the command completes or is stopped by calling Stop
@@ -71,9 +67,9 @@ func (job *Job) wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, 
 	if err != nil {
 		// TODO: Add a logger instead of printing to stdout
 		fmt.Println(err)
-		newStatus = ERRORED
+		newStatus = Errored
 	} else {
-		newStatus = COMPLETED
+		newStatus = Completed
 	}
 
 	if !commandStoppedBySignal(cmd) {
@@ -101,25 +97,23 @@ func (job *Job) Stop(store JobStore) error {
 		return errors.Wrap(err, "Error stopping job")
 	}
 
-	store.UpdateJobStatus(job, STOPPED)
+	store.UpdateJobStatus(job, Stopped)
 
 	return nil
 }
 
-func (job *Job) parseCommand() {
-	splitCommand := strings.Split(job.RawCommand, " ")
-
-	if len(splitCommand) < commandWithArgMinParts {
-		job.commandName = job.RawCommand
-		job.commandArguments = []string{}
-	} else {
-		job.commandName = splitCommand[0]
-		job.commandArguments = splitCommand[1:]
-	}
+func (job *Job) isRunning() bool {
+	return job.Status == Running
 }
 
-func (job *Job) isRunning() bool {
-	return job.Status == RUNNING
+func parseCommand(rawCommand string) (string, []string) {
+	splitCommand := strings.Split(rawCommand, " ")
+
+	if len(splitCommand) < 2 {
+		return rawCommand, []string{}
+	}
+
+	return splitCommand[0], splitCommand[1:]
 }
 
 func commandStoppedBySignal(cmd *exec.Cmd) bool {

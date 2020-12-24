@@ -16,11 +16,14 @@ type JobStore interface {
 // MemoryJobStore implements the JobStore interface and stores Jobs in memory
 type MemoryJobStore struct {
 	Jobs  map[string]*Job
-	mutex sync.Mutex
+	mutex sync.RWMutex
 }
 
 // AddJob adds a Job to the memory store
 func (store *MemoryJobStore) AddJob(job *Job) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
 	store.Jobs[job.ID] = job
 }
 
@@ -56,8 +59,8 @@ func (store *MemoryJobStore) UpdateJobStatus(job *Job, status string) error {
 
 // FindJob returns a copy of the Job if it is found. Otherwise, returns an error.
 func (store *MemoryJobStore) FindJob(id string) (*Job, error) {
-	store.mutex.Lock()
-	defer store.mutex.Unlock()
+	store.mutex.RLock()
+	defer store.mutex.RUnlock()
 
 	job, ok := store.Jobs[id]
 	if !ok {

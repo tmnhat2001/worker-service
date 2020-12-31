@@ -1,8 +1,8 @@
 package worker
 
 import (
-	"bytes"
-	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -36,13 +36,19 @@ func (job *Job) Start(store JobStore) error {
 	commandName, commandArguments := parseCommand(job.RawCommand)
 	cmd := exec.Command(commandName, commandArguments...)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return errors.Wrap(err, "Unable to get stdout pipe of the job")
+	}
+
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return errors.Wrap(err, "Unable to get stderr pipe of the job")
+	}
 
 	job.ID = uuid.NewV4().String()
 
-	err := cmd.Start()
+	err = cmd.Start()
 	if err != nil {
 		job.Status = Errored
 		store.AddJob(job)
@@ -54,29 +60,15 @@ func (job *Job) Start(store JobStore) error {
 	job.Status = Running
 	store.AddJob(job)
 
+	// These go routines will exit when the command completes or
+	// when an error occurs from reading the pipes
+	go job.saveOutput(stdoutPipe, store, "stdout")
+	go job.saveOutput(stderrPipe, store, "stderr")
+
 	// This goroutine will exit when the command completes or is stopped by calling Stop
-	go job.wait(cmd, &stdout, &stderr, store)
+	go job.wait(cmd, store)
 
 	return nil
-}
-
-func (job *Job) wait(cmd *exec.Cmd, stdout *bytes.Buffer, stderr *bytes.Buffer, store JobStore) {
-	err := cmd.Wait()
-
-	if commandStoppedBySignal(cmd) {
-		job.Status = Stopped
-	} else if err != nil {
-		// TODO: Add a logger instead of printing to stdout
-		fmt.Println(err)
-		job.Status = Errored
-	} else {
-		job.Status = Completed
-	}
-
-	job.Stdout = stdout.String()
-	job.Stderr = stderr.String()
-	job.ExitCode = cmd.ProcessState.ExitCode()
-	store.UpdateJob(job)
 }
 
 // Stop attempts to stop a running command
@@ -91,7 +83,54 @@ func (job *Job) Stop(store JobStore) error {
 		return errors.Wrap(err, "Error stopping job")
 	}
 
+	job.Status = Stopped
+	job.ExitCode = -1
+	store.UpdateJob(job)
+
 	return nil
+}
+
+func (job *Job) wait(cmd *exec.Cmd, store JobStore) {
+	err := cmd.Wait()
+
+	if commandStoppedBySignal(cmd) {
+		return
+	}
+
+	if err != nil {
+		log.Println(err)
+		job.Status = Errored
+	} else {
+		job.Status = Completed
+	}
+
+	job.ExitCode = cmd.ProcessState.ExitCode()
+	store.UpdateJob(job)
+}
+
+func (job *Job) saveOutput(pipe io.ReadCloser, store JobStore, outputType string) {
+	var builder strings.Builder
+	buf := make([]byte, 1024, 1024)
+	for {
+		n, err := pipe.Read(buf)
+		if n > 0 {
+			builder.Write(buf[:n])
+			if outputType == "stdout" {
+				job.Stdout = builder.String()
+			} else {
+				job.Stderr = builder.String()
+			}
+			store.UpdateJob(job)
+		}
+
+		if err != nil {
+			if err != io.EOF {
+				log.Println(err)
+			}
+
+			return
+		}
+	}
 }
 
 func (job *Job) isRunning() bool {

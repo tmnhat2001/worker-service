@@ -133,10 +133,6 @@ func (job *Job) saveOutput(pipe io.ReadCloser, store JobStore, outputType string
 	}
 }
 
-func (job *Job) isRunning() bool {
-	return job.Status == Running
-}
-
 func parseCommand(rawCommand string) (string, []string) {
 	splitCommand := strings.Split(rawCommand, " ")
 

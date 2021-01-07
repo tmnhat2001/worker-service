@@ -1,10 +1,10 @@
 package worker
 
 import (
-	"io"
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -22,33 +22,25 @@ const (
 
 // Job represents a job created to run a Linux command
 type Job struct {
-	ID         string
-	Pid        int
-	Status     string
-	Stdout     string
-	Stderr     string
-	RawCommand string
-	ExitCode   int
+	ID       string
+	Pid      int
+	Status   string
+	Stdout   string
+	Stderr   string
+	Command  string
+	ExitCode string
 }
 
 // Start creates a process to run the command and save the Job to the given store.
 func (job *Job) Start(store JobStore) error {
-	commandName, commandArguments := parseCommand(job.RawCommand)
-	cmd := exec.Command(commandName, commandArguments...)
-
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return errors.Wrap(err, "Unable to get stdout pipe of the job")
-	}
-
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return errors.Wrap(err, "Unable to get stderr pipe of the job")
-	}
-
 	job.ID = uuid.NewV4().String()
 
-	err = cmd.Start()
+	commandName, commandArguments := parseCommand(job.Command)
+	cmd := exec.Command(commandName, commandArguments...)
+	cmd.Stdout = &jobOutputWriter{outputType: "stdout", jobID: job.ID, store: store}
+	cmd.Stderr = &jobOutputWriter{outputType: "stderr", jobID: job.ID, store: store}
+
+	err := cmd.Start()
 	if err != nil {
 		job.Status = Errored
 		store.AddJob(job)
@@ -59,11 +51,6 @@ func (job *Job) Start(store JobStore) error {
 	job.Pid = cmd.Process.Pid
 	job.Status = Running
 	store.AddJob(job)
-
-	// These go routines will exit when the command completes or
-	// when an error occurs from reading the pipes
-	go job.saveOutput(stdoutPipe, store, "stdout")
-	go job.saveOutput(stderrPipe, store, "stderr")
 
 	// This goroutine will exit when the command completes or is stopped by calling Stop
 	go job.wait(cmd, store)
@@ -83,14 +70,15 @@ func (job *Job) Stop(store JobStore) error {
 		return errors.Wrap(err, "Error stopping job")
 	}
 
-	job.Status = Stopped
-	job.ExitCode = -1
-	store.UpdateJob(job)
+	values := map[string]string{"Status": Stopped, "ExitCode": "-1"}
+	store.UpdateJob(job.ID, values)
 
 	return nil
 }
 
 func (job *Job) wait(cmd *exec.Cmd, store JobStore) {
+	values := make(map[string]string)
+
 	err := cmd.Wait()
 
 	if commandStoppedBySignal(cmd) {
@@ -99,38 +87,13 @@ func (job *Job) wait(cmd *exec.Cmd, store JobStore) {
 
 	if err != nil {
 		log.Println(err)
-		job.Status = Errored
+		values["Status"] = Errored
 	} else {
-		job.Status = Completed
+		values["Status"] = Completed
 	}
 
-	job.ExitCode = cmd.ProcessState.ExitCode()
-	store.UpdateJob(job)
-}
-
-func (job *Job) saveOutput(pipe io.ReadCloser, store JobStore, outputType string) {
-	var builder strings.Builder
-	buf := make([]byte, 1024, 1024)
-	for {
-		n, err := pipe.Read(buf)
-		if n > 0 {
-			builder.Write(buf[:n])
-			if outputType == "stdout" {
-				job.Stdout = builder.String()
-			} else {
-				job.Stderr = builder.String()
-			}
-			store.UpdateJob(job)
-		}
-
-		if err != nil {
-			if err != io.EOF {
-				log.Println(err)
-			}
-
-			return
-		}
-	}
+	values["ExitCode"] = strconv.Itoa(cmd.ProcessState.ExitCode())
+	store.UpdateJob(job.ID, values)
 }
 
 func parseCommand(rawCommand string) (string, []string) {

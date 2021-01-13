@@ -14,7 +14,12 @@ import (
 )
 
 func TestStartJob(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
@@ -22,6 +27,7 @@ func TestStartJob(t *testing.T) {
 	response, err := executeStartJobRequest(command, "user1", "thisispasswordforuser1")
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if response.StatusCode != http.StatusOK {
@@ -31,6 +37,7 @@ func TestStartJob(t *testing.T) {
 	job, err := getJobFromResponse(response)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if job.ID == "" {
@@ -53,7 +60,12 @@ Got: %s`, command, job.Command)
 }
 
 func TestStopJob(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
@@ -64,16 +76,19 @@ func TestStopJob(t *testing.T) {
 	startResponse, err := executeStartJobRequest(command, username, password)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	job1, err := getJobFromResponse(startResponse)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	stopResponse, err := executeStopJobRequest(job1.ID, username, password)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if stopResponse.StatusCode != http.StatusOK {
@@ -95,7 +110,12 @@ func TestStopJob(t *testing.T) {
 }
 
 func TestGetJob(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
@@ -106,16 +126,19 @@ func TestGetJob(t *testing.T) {
 	startResponse, err := executeStartJobRequest(command, username, password)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	job1, err := getJobFromResponse(startResponse)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	response, err := executeGetJobRequest(job1.ID, username, password)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if response.StatusCode != http.StatusOK {
@@ -125,6 +148,7 @@ func TestGetJob(t *testing.T) {
 	job2, err := getJobFromResponse(response)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if job2.Status != worker.Completed {
@@ -143,13 +167,19 @@ Got: %s`, "hello world\n", job2.Stdout)
 }
 
 func TestPlainHTTP(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
 	response, err := executePlainTextRequest()
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if response.StatusCode != http.StatusBadRequest {
@@ -158,13 +188,19 @@ func TestPlainHTTP(t *testing.T) {
 }
 
 func TestAuthentication(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
 	response, err := executeStartJobRequest("echo hello world", "user1", "anIncorrectPassword")
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if response.StatusCode != http.StatusUnauthorized {
@@ -175,23 +211,31 @@ func TestAuthentication(t *testing.T) {
 }
 
 func TestAuthorization(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
 	startResponse, err := executeStartJobRequest("echo hello world", "user1", "thisispasswordforuser1")
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	job1, err := getJobFromResponse(startResponse)
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	response, err := executeGetJobRequest(job1.ID, "user2", "thisispasswordforuser2")
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if response.StatusCode != http.StatusNotFound {
@@ -202,7 +246,12 @@ func TestAuthorization(t *testing.T) {
 }
 
 func TestInvalidCommand(t *testing.T) {
-	app := NewApp(8989)
+	app, err := NewApp(8989)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
 	go app.run("../../certs/server.crt", "../../certs/server.key")
 	defer app.close()
 
@@ -210,6 +259,7 @@ func TestInvalidCommand(t *testing.T) {
 	response, err := executeStartJobRequest(command, "user1", "thisispasswordforuser1")
 	if err != nil {
 		t.Error(err)
+		return
 	}
 
 	if response.StatusCode != http.StatusInternalServerError {

@@ -14,7 +14,7 @@ import (
 
 const hostname = "localhost"
 
-// App represents an object that handles API requests
+// App represents server that handles API requests
 type App struct {
 	jobStore    worker.JobStore
 	authService *AuthenticationService
@@ -22,34 +22,39 @@ type App struct {
 }
 
 // RunApp creates an instance of the App and runs it
-func RunApp() {
-	app := NewApp(8080)
-	app.run("certs/server.crt", "certs/server.key")
+func RunApp() error {
+	app, err := NewApp(8080)
+	if err != nil {
+		return err
+	}
+
+	err = app.run("certs/server.crt", "certs/server.key")
+	return err
 }
 
 // NewApp returns a new App instance
-func NewApp(port int) *App {
+func NewApp(port int) (*App, error) {
 	users, err := createUsers()
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	userRepository := &MemoryUserRepository{Users: users}
-	jobs := make(map[string]worker.Job)
 	app := &App{
-		jobStore:    &worker.MemoryJobStore{Jobs: jobs},
-		authService: &AuthenticationService{UserRepository: userRepository},
+		jobStore: &worker.MemoryJobStore{
+			Jobs: make(map[string]worker.Job),
+		},
+		authService: &AuthenticationService{
+			UserRepository: &MemoryUserRepository{Users: users},
+		},
 	}
 
-	router := app.registerRoutes()
-	address := fmt.Sprintf(":%d", port)
 	server := &http.Server{
-		Addr:    address,
-		Handler: router,
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: app.registerRoutes(),
 	}
 	app.server = server
 
-	return app
+	return app, nil
 }
 
 func (app *App) registerRoutes() *mux.Router {
@@ -86,9 +91,9 @@ func (app *App) authHandler(next http.Handler) http.Handler {
 	})
 }
 
-func (app *App) run(certFilePath, keyFilePath string) {
+func (app *App) run(certFilePath, keyFilePath string) error {
 	err := app.server.ListenAndServeTLS(certFilePath, keyFilePath)
-	log.Println(err)
+	return err
 }
 
 func (app *App) close() {

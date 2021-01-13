@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -25,7 +26,12 @@ func errorResponse(w http.ResponseWriter, errorMessage string, statusCode int) {
 }
 
 func jsonResponse(w http.ResponseWriter, payload interface{}, statusCode int) {
-	response, _ := json.Marshal(payload)
+	response, err := json.Marshal(payload)
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)

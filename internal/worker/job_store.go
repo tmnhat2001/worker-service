@@ -5,6 +5,9 @@ import (
 	"sync"
 )
 
+// ErrJobNotFound represents an error returned when a job cannot be found in the store
+var ErrJobNotFound = errors.New("worker: Unable to find job in store")
+
 // JobStore defines an interface for saving, updating and finding a Job.
 type JobStore interface {
 	AddJob(*Job)
@@ -83,7 +86,7 @@ func (store *MemoryJobStore) FindJob(id string) (Job, error) {
 
 	job, ok := store.Jobs[id]
 	if !ok {
-		return Job{}, errors.New("worker: Unable to find job in store")
+		return Job{}, ErrJobNotFound
 	}
 
 	jobCopy := Job{

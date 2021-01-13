@@ -12,8 +12,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const hostname = "localhost"
-
 // App represents server that handles API requests
 type App struct {
 	jobStore    worker.JobStore
@@ -121,15 +119,15 @@ func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	job.User = user.Username
-	err = (&job).Start(app.jobStore)
+	service := jobService{jobStore: app.jobStore, user: user}
+	updatedJob, err := service.startJob(&job)
 	if err != nil {
 		log.Println(err)
 		errorResponse(w, "Failed to start job", http.StatusInternalServerError)
 		return
 	}
 
-	jsonResponse(w, job, http.StatusOK)
+	jsonResponse(w, updatedJob, http.StatusOK)
 }
 
 func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
@@ -150,44 +148,22 @@ func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	job, err := app.jobStore.FindJob(jobRequest.ID)
-	if err != nil {
+	service := jobService{jobStore: app.jobStore, user: user}
+	job, err := service.stopJob(jobRequest.ID)
+	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
 		log.Println(err)
 		errorResponse(w, "Failed to find job", http.StatusNotFound)
 		return
-	}
-
-	if job.User != user.Username {
-		errorResponse(w, "Failed to find job", http.StatusNotFound)
-		return
-	}
-
-	err = job.Stop(app.jobStore)
-	if err != nil {
+	} else if err != nil {
 		log.Println(err)
 		errorResponse(w, "Failed to stop job. The job may have already finished.", http.StatusInternalServerError)
 		return
 	}
 
-	updatedJob, err := app.jobStore.FindJob(jobRequest.ID)
-	if err != nil {
-		log.Println(err)
-		errorResponse(w, "Failed to find job", http.StatusNotFound)
-		return
-	}
-
-	jsonResponse(w, updatedJob, http.StatusOK)
+	jsonResponse(w, job, http.StatusOK)
 }
 
 func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
-	requestVars := mux.Vars(req)
-	job, err := app.jobStore.FindJob(requestVars["jobID"])
-	if err != nil {
-		log.Println(err)
-		errorResponse(w, "Failed to find job", http.StatusNotFound)
-		return
-	}
-
 	user, ok := userFromContext(req.Context())
 	if !ok {
 		log.Println("Unable to retrieve authenticated user")
@@ -195,8 +171,16 @@ func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if job.User != user.Username {
+	requestVars := mux.Vars(req)
+	service := jobService{jobStore: app.jobStore, user: user}
+	job, err := service.getJob(requestVars["jobID"])
+	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
+		log.Println(err)
 		errorResponse(w, "Failed to find job", http.StatusNotFound)
+		return
+	} else if err != nil {
+		log.Println(err)
+		errorResponse(w, "An unexpected error has occurred", http.StatusInternalServerError)
 		return
 	}
 

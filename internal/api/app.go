@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 	"github.com/tmnhat2001/worker-service/internal/worker"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -17,6 +18,7 @@ type App struct {
 	jobStore    worker.JobStore
 	authService *AuthenticationService
 	server      *http.Server
+	logger      *logrus.Logger
 }
 
 // RunApp creates an instance of the App and runs it
@@ -44,6 +46,7 @@ func NewApp(port int) (*App, error) {
 		authService: &AuthenticationService{
 			UserRepository: &MemoryUserRepository{Users: users},
 		},
+		logger: logrus.New(),
 	}
 
 	server := &http.Server{
@@ -74,7 +77,7 @@ func (app *App) authHandler(next http.Handler) http.Handler {
 		user, err := app.authService.Authenticate(r)
 		if err != nil {
 			if err != bcrypt.ErrMismatchedHashAndPassword {
-				log.Println(err)
+				app.logger.WithFields(logrus.Fields{"endpoint": r.URL.Path}).Error(err)
 			}
 
 			errorResponse(w, "Unable to authenticate user", http.StatusUnauthorized)
@@ -102,27 +105,38 @@ func (app *App) close() {
 }
 
 func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
+	user, ok := userFromContext(req.Context())
+	if !ok {
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+		}).Error("Unable to retrieve authenticated user")
+
+		errorResponse(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	decoder := json.NewDecoder(req.Body)
 
 	var job worker.Job
 	err := decoder.Decode(&job)
 	if err != nil {
-		log.Println(err)
-		errorResponse(w, "Failed to parse request", http.StatusBadRequest)
-		return
-	}
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
 
-	user, ok := userFromContext(req.Context())
-	if !ok {
-		log.Println("Unable to retrieve authenticated user")
-		errorResponse(w, "Internal server error", http.StatusInternalServerError)
+		errorResponse(w, "Failed to parse request", http.StatusBadRequest)
 		return
 	}
 
 	service := jobService{jobStore: app.jobStore, user: user}
 	updatedJob, err := service.startJob(&job)
 	if err != nil {
-		log.Println(err)
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
+
 		errorResponse(w, "Failed to start job", http.StatusInternalServerError)
 		return
 	}
@@ -131,31 +145,46 @@ func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
 }
 
 func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
+	user, ok := userFromContext(req.Context())
+	if !ok {
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+		}).Error("Unable to retrieve authenticated user")
+
+		errorResponse(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	decoder := json.NewDecoder(req.Body)
 
 	var jobRequest worker.Job
 	err := decoder.Decode(&jobRequest)
 	if err != nil {
-		log.Println(err)
-		errorResponse(w, "Failed to parse request", http.StatusBadRequest)
-		return
-	}
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
 
-	user, ok := userFromContext(req.Context())
-	if !ok {
-		log.Println("Unable to retrieve authenticated user")
-		errorResponse(w, "Internal server error", http.StatusInternalServerError)
+		errorResponse(w, "Failed to parse request", http.StatusBadRequest)
 		return
 	}
 
 	service := jobService{jobStore: app.jobStore, user: user}
 	job, err := service.stopJob(jobRequest.ID)
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
-		log.Println(err)
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
+
 		errorResponse(w, "Failed to find job", http.StatusNotFound)
 		return
 	} else if err != nil {
-		log.Println(err)
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
+
 		errorResponse(w, "Failed to stop job. The job may have already finished.", http.StatusInternalServerError)
 		return
 	}
@@ -166,7 +195,10 @@ func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
 func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
 	user, ok := userFromContext(req.Context())
 	if !ok {
-		log.Println("Unable to retrieve authenticated user")
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+		}).Error("Unable to retrieve authenticated user")
+
 		errorResponse(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -175,11 +207,19 @@ func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
 	service := jobService{jobStore: app.jobStore, user: user}
 	job, err := service.getJob(requestVars["jobID"])
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
-		log.Println(err)
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
+
 		errorResponse(w, "Failed to find job", http.StatusNotFound)
 		return
 	} else if err != nil {
-		log.Println(err)
+		app.logger.WithFields(logrus.Fields{
+			"endpoint": req.URL.Path,
+			"user":     user.Username,
+		}).Error(err)
+
 		errorResponse(w, "An unexpected error has occurred", http.StatusInternalServerError)
 		return
 	}

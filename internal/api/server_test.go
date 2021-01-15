@@ -13,14 +13,17 @@ import (
 	"github.com/tmnhat2001/worker-service/internal/worker"
 )
 
+const certPath = "../../certs/server.crt"
+const keyPath = "../../certs/server.key"
+
 func TestStartJob(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	command := "echo \"hello world\""
@@ -60,13 +63,13 @@ Got: %s`, command, job.Command)
 }
 
 func TestStopJob(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	username := "user1"
@@ -110,13 +113,13 @@ func TestStopJob(t *testing.T) {
 }
 
 func TestGetJob(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	username := "user1"
@@ -167,13 +170,13 @@ Got: %s`, "hello world\n", job2.Stdout)
 }
 
 func TestPlainHTTP(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	response, err := executePlainTextRequest()
@@ -188,13 +191,13 @@ func TestPlainHTTP(t *testing.T) {
 }
 
 func TestAuthentication(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	response, err := executeStartJobRequest("echo hello world", "user1", "anIncorrectPassword")
@@ -211,13 +214,13 @@ func TestAuthentication(t *testing.T) {
 }
 
 func TestAuthorization(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	startResponse, err := executeStartJobRequest("echo hello world", "user1", "thisispasswordforuser1")
@@ -246,13 +249,13 @@ func TestAuthorization(t *testing.T) {
 }
 
 func TestInvalidCommand(t *testing.T) {
-	server, err := NewServer(8989)
+	server, err := NewServer(testServerConfig(8989))
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	go server.run("../../certs/server.crt", "../../certs/server.key")
+	go server.Run()
 	defer server.close()
 
 	command := "an invalid command"
@@ -267,6 +270,14 @@ func TestInvalidCommand(t *testing.T) {
 	}
 
 	expectErrorMessage(response, "Failed to start job", t)
+}
+
+func testServerConfig(port int) ServerConfig {
+	return ServerConfig{
+		Port:         port,
+		CertFilePath: certPath,
+		KeyFilePath:  keyPath,
+	}
 }
 
 func executeStartJobRequest(command, username, password string) (*http.Response, error) {

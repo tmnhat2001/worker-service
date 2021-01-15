@@ -19,21 +19,11 @@ type Server struct {
 	authService *AuthenticationService
 	httpServer  *http.Server
 	logger      *logrus.Logger
-}
-
-// RunServer creates an instance of the Server and runs it
-func RunServer() error {
-	server, err := NewServer(8080)
-	if err != nil {
-		return err
-	}
-
-	err = server.run("certs/server.crt", "certs/server.key")
-	return err
+	config      ServerConfig
 }
 
 // NewServer returns a new Server instance
-func NewServer(port int) (*Server, error) {
+func NewServer(config ServerConfig) (*Server, error) {
 	users, err := createUsers()
 	if err != nil {
 		return nil, err
@@ -47,15 +37,21 @@ func NewServer(port int) (*Server, error) {
 			UserRepository: &MemoryUserRepository{Users: users},
 		},
 		logger: logrus.New(),
+		config: config,
 	}
 
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    fmt.Sprintf(":%d", config.Port),
 		Handler: server.registerRoutes(),
 	}
 	server.httpServer = httpServer
 
 	return server, nil
+}
+
+// Run starts the Server
+func (server *Server) Run() error {
+	return server.httpServer.ListenAndServeTLS(server.config.CertFilePath, server.config.KeyFilePath)
 }
 
 func (server *Server) registerRoutes() *mux.Router {
@@ -90,11 +86,6 @@ func (server *Server) authHandler(next http.Handler) http.Handler {
 		newRequest := r.WithContext(newCtx)
 		next.ServeHTTP(w, newRequest)
 	})
-}
-
-func (server *Server) run(certFilePath, keyFilePath string) error {
-	err := server.httpServer.ListenAndServeTLS(certFilePath, keyFilePath)
-	return err
 }
 
 func (server *Server) close() {

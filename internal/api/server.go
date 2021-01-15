@@ -13,33 +13,33 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// App represents server that handles API requests
-type App struct {
+// Server represents server that handles API requests
+type Server struct {
 	jobStore    worker.JobStore
 	authService *AuthenticationService
-	server      *http.Server
+	httpServer  *http.Server
 	logger      *logrus.Logger
 }
 
-// RunApp creates an instance of the App and runs it
-func RunApp() error {
-	app, err := NewApp(8080)
+// RunServer creates an instance of the Server and runs it
+func RunServer() error {
+	server, err := NewServer(8080)
 	if err != nil {
 		return err
 	}
 
-	err = app.run("certs/server.crt", "certs/server.key")
+	err = server.run("certs/server.crt", "certs/server.key")
 	return err
 }
 
-// NewApp returns a new App instance
-func NewApp(port int) (*App, error) {
+// NewServer returns a new Server instance
+func NewServer(port int) (*Server, error) {
 	users, err := createUsers()
 	if err != nil {
 		return nil, err
 	}
 
-	app := &App{
+	server := &Server{
 		jobStore: &worker.MemoryJobStore{
 			Jobs: make(map[string]worker.Job),
 		},
@@ -49,35 +49,35 @@ func NewApp(port int) (*App, error) {
 		logger: logrus.New(),
 	}
 
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: app.registerRoutes(),
+		Handler: server.registerRoutes(),
 	}
-	app.server = server
+	server.httpServer = httpServer
 
-	return app, nil
+	return server, nil
 }
 
-func (app *App) registerRoutes() *mux.Router {
+func (server *Server) registerRoutes() *mux.Router {
 	router := mux.NewRouter()
 
-	router.Handle("/start", app.makeHandler(app.startJob)).Methods("POST")
-	router.Handle("/stop", app.makeHandler(app.stopJob)).Methods("PUT")
-	router.Handle("/jobs/{jobID}", app.makeHandler(app.getJobResults)).Methods("GET")
+	router.Handle("/start", server.makeHandler(server.startJob)).Methods("POST")
+	router.Handle("/stop", server.makeHandler(server.stopJob)).Methods("PUT")
+	router.Handle("/jobs/{jobID}", server.makeHandler(server.getJobResults)).Methods("GET")
 
 	return router
 }
 
-func (app *App) makeHandler(fn func(http.ResponseWriter, *http.Request)) http.Handler {
-	return app.authHandler(http.HandlerFunc(fn))
+func (server *Server) makeHandler(fn func(http.ResponseWriter, *http.Request)) http.Handler {
+	return server.authHandler(http.HandlerFunc(fn))
 }
 
-func (app *App) authHandler(next http.Handler) http.Handler {
+func (server *Server) authHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, err := app.authService.Authenticate(r)
+		user, err := server.authService.Authenticate(r)
 		if err != nil {
 			if err != bcrypt.ErrMismatchedHashAndPassword {
-				app.logger.WithFields(logrus.Fields{"endpoint": r.URL.Path}).Error(err)
+				server.logger.WithFields(logrus.Fields{"endpoint": r.URL.Path}).Error(err)
 			}
 
 			errorResponse(w, "Unable to authenticate user", http.StatusUnauthorized)
@@ -92,22 +92,22 @@ func (app *App) authHandler(next http.Handler) http.Handler {
 	})
 }
 
-func (app *App) run(certFilePath, keyFilePath string) error {
-	err := app.server.ListenAndServeTLS(certFilePath, keyFilePath)
+func (server *Server) run(certFilePath, keyFilePath string) error {
+	err := server.httpServer.ListenAndServeTLS(certFilePath, keyFilePath)
 	return err
 }
 
-func (app *App) close() {
-	err := app.server.Close()
+func (server *Server) close() {
+	err := server.httpServer.Close()
 	if err != nil {
 		log.Println(err)
 	}
 }
 
-func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
+func (server *Server) startJob(w http.ResponseWriter, req *http.Request) {
 	user, ok := userFromContext(req.Context())
 	if !ok {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 		}).Error("Unable to retrieve authenticated user")
 
@@ -120,7 +120,7 @@ func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
 	var job worker.Job
 	err := decoder.Decode(&job)
 	if err != nil {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)
@@ -129,10 +129,10 @@ func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	service := jobService{jobStore: app.jobStore, user: user}
+	service := jobService{jobStore: server.jobStore, user: user}
 	updatedJob, err := service.startJob(&job)
 	if err != nil {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)
@@ -144,10 +144,10 @@ func (app *App) startJob(w http.ResponseWriter, req *http.Request) {
 	jsonResponse(w, updatedJob, http.StatusOK)
 }
 
-func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
+func (server *Server) stopJob(w http.ResponseWriter, req *http.Request) {
 	user, ok := userFromContext(req.Context())
 	if !ok {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 		}).Error("Unable to retrieve authenticated user")
 
@@ -160,7 +160,7 @@ func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
 	var jobRequest worker.Job
 	err := decoder.Decode(&jobRequest)
 	if err != nil {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)
@@ -169,10 +169,10 @@ func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	service := jobService{jobStore: app.jobStore, user: user}
+	service := jobService{jobStore: server.jobStore, user: user}
 	job, err := service.stopJob(jobRequest.ID)
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)
@@ -180,7 +180,7 @@ func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
 		errorResponse(w, "Failed to find job", http.StatusNotFound)
 		return
 	} else if err != nil {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)
@@ -192,10 +192,10 @@ func (app *App) stopJob(w http.ResponseWriter, req *http.Request) {
 	jsonResponse(w, job, http.StatusOK)
 }
 
-func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
+func (server *Server) getJobResults(w http.ResponseWriter, req *http.Request) {
 	user, ok := userFromContext(req.Context())
 	if !ok {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 		}).Error("Unable to retrieve authenticated user")
 
@@ -204,10 +204,10 @@ func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
 	}
 
 	requestVars := mux.Vars(req)
-	service := jobService{jobStore: app.jobStore, user: user}
+	service := jobService{jobStore: server.jobStore, user: user}
 	job, err := service.getJob(requestVars["jobID"])
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)
@@ -215,7 +215,7 @@ func (app *App) getJobResults(w http.ResponseWriter, req *http.Request) {
 		errorResponse(w, "Failed to find job", http.StatusNotFound)
 		return
 	} else if err != nil {
-		app.logger.WithFields(logrus.Fields{
+		server.logger.WithFields(logrus.Fields{
 			"endpoint": req.URL.Path,
 			"user":     user.Username,
 		}).Error(err)

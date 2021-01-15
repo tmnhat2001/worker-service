@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	err := api.RunApp()
+	err := api.RunServer()
 	if err != nil {
 		log.Fatal(err)
 	}

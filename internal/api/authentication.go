@@ -15,6 +15,17 @@ type AuthenticationService struct {
 	UserRepository UserRepository
 }
 
+func newAuthenticationService() (*AuthenticationService, error) {
+	users, err := createUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthenticationService{
+		UserRepository: &MemoryUserRepository{Users: users},
+	}, nil
+}
+
 // Authenticate checks if the credentials of the given Request is valid
 func (service *AuthenticationService) Authenticate(req *http.Request) (*User, error) {
 	username, password, ok := req.BasicAuth()

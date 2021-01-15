@@ -24,7 +24,7 @@ type Server struct {
 
 // NewServer returns a new Server instance
 func NewServer(config ServerConfig) (*Server, error) {
-	users, err := createUsers()
+	authService, err := newAuthenticationService()
 	if err != nil {
 		return nil, err
 	}
@@ -33,11 +33,9 @@ func NewServer(config ServerConfig) (*Server, error) {
 		jobStore: &worker.MemoryJobStore{
 			Jobs: make(map[string]worker.Job),
 		},
-		authService: &AuthenticationService{
-			UserRepository: &MemoryUserRepository{Users: users},
-		},
-		logger: logrus.New(),
-		config: config,
+		authService: authService,
+		logger:      logrus.New(),
+		config:      config,
 	}
 
 	httpServer := &http.Server{

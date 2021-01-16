@@ -3,21 +3,22 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 )
 
 type contextKey string
 
-func userFromContext(ctx context.Context) (*User, bool) {
+func userFromContext(ctx context.Context) (*User, error) {
 	key := contextKey("user")
 	user, ok := ctx.Value(key).(*User)
 
 	if !ok {
-		return nil, false
+		return nil, errors.New("Unable to retrieve user")
 	}
 
-	return user, true
+	return user, nil
 }
 
 func errorResponse(w http.ResponseWriter, errorMessage string, statusCode int) {

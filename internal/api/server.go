@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tmnhat2001/worker-service/internal/worker"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type customHandler func(r *http.Request) (worker.Job, requestError)
 
 // Server represents server that handles API requests
 type Server struct {
@@ -55,19 +57,19 @@ func (server *Server) Run() error {
 func (server *Server) registerRoutes() *mux.Router {
 	router := mux.NewRouter()
 
-	router.Handle("/start", server.makeHandler(server.startJob)).Methods("POST")
+	router.HandleFunc("/start", server.makeHandler(server.startJob)).Methods("POST")
 	router.Handle("/stop", server.makeHandler(server.stopJob)).Methods("PUT")
 	router.Handle("/jobs/{jobID}", server.makeHandler(server.getJobResults)).Methods("GET")
 
 	return router
 }
 
-func (server *Server) makeHandler(fn func(http.ResponseWriter, *http.Request)) http.Handler {
-	return server.authHandler(http.HandlerFunc(fn))
+func (server *Server) makeHandler(fn customHandler) http.HandlerFunc {
+	return server.authHandler(server.requestHandler(fn))
 }
 
-func (server *Server) authHandler(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (server *Server) authHandler(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		user, err := server.authService.Authenticate(r)
 		if err != nil {
 			if err != bcrypt.ErrMismatchedHashAndPassword {
@@ -83,135 +85,92 @@ func (server *Server) authHandler(next http.Handler) http.Handler {
 		newCtx := context.WithValue(ctx, key, user)
 		newRequest := r.WithContext(newCtx)
 		next.ServeHTTP(w, newRequest)
-	})
+	}
+}
+
+func (server *Server) requestHandler(fn customHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		job, err := fn(req)
+		if (err != requestError{}) {
+			server.logger.WithFields(logrus.Fields{
+				"endpoint": req.URL.Path,
+			}).Error(errors.Unwrap(err))
+
+			errorResponse(w, err.message, err.statusCode)
+			return
+		}
+
+		jsonResponse(w, job, http.StatusOK)
+	}
 }
 
 func (server *Server) close() {
 	err := server.httpServer.Close()
 	if err != nil {
-		log.Println(err)
+		server.logger.Error(err)
 	}
 }
 
-func (server *Server) startJob(w http.ResponseWriter, req *http.Request) {
-	user, ok := userFromContext(req.Context())
-	if !ok {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-		}).Error("Unable to retrieve authenticated user")
-
-		errorResponse(w, "Internal server error", http.StatusInternalServerError)
-		return
+func (server *Server) startJob(req *http.Request) (worker.Job, requestError) {
+	user, err := userFromContext(req.Context())
+	if err != nil {
+		return worker.Job{}, requestError{wrappedError: err, message: "Internal server error", statusCode: http.StatusInternalServerError}
 	}
 
-	decoder := json.NewDecoder(req.Body)
-
 	var job worker.Job
-	err := decoder.Decode(&job)
+	decoder := json.NewDecoder(req.Body)
+	err = decoder.Decode(&job)
 	if err != nil {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "Failed to parse request", http.StatusBadRequest)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "Failed to parse request", statusCode: http.StatusNotFound}
 	}
 
 	service := jobService{jobStore: server.jobStore, user: user}
 	updatedJob, err := service.startJob(&job)
 	if err != nil {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "Failed to start job", http.StatusInternalServerError)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "Failed to start job", statusCode: http.StatusInternalServerError}
 	}
 
-	jsonResponse(w, updatedJob, http.StatusOK)
+	return updatedJob, requestError{}
 }
 
-func (server *Server) stopJob(w http.ResponseWriter, req *http.Request) {
-	user, ok := userFromContext(req.Context())
-	if !ok {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-		}).Error("Unable to retrieve authenticated user")
-
-		errorResponse(w, "Internal server error", http.StatusInternalServerError)
-		return
+func (server *Server) stopJob(req *http.Request) (worker.Job, requestError) {
+	user, err := userFromContext(req.Context())
+	if err != nil {
+		return worker.Job{}, requestError{wrappedError: err, message: "Internal server error", statusCode: http.StatusInternalServerError}
 	}
 
-	decoder := json.NewDecoder(req.Body)
-
 	var jobRequest worker.Job
-	err := decoder.Decode(&jobRequest)
+	decoder := json.NewDecoder(req.Body)
+	err = decoder.Decode(&jobRequest)
 	if err != nil {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "Failed to parse request", http.StatusBadRequest)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "Failed to parse request", statusCode: http.StatusNotFound}
 	}
 
 	service := jobService{jobStore: server.jobStore, user: user}
 	job, err := service.stopJob(jobRequest.ID)
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "Failed to find job", http.StatusNotFound)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "Failed to find job", statusCode: http.StatusNotFound}
 	} else if err != nil {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "Failed to stop job. The job may have already finished.", http.StatusInternalServerError)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "Failed to stop job. The job may have already finished.", statusCode: http.StatusInternalServerError}
 	}
 
-	jsonResponse(w, job, http.StatusOK)
+	return job, requestError{}
 }
 
-func (server *Server) getJobResults(w http.ResponseWriter, req *http.Request) {
-	user, ok := userFromContext(req.Context())
-	if !ok {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-		}).Error("Unable to retrieve authenticated user")
-
-		errorResponse(w, "Internal server error", http.StatusInternalServerError)
-		return
+func (server *Server) getJobResults(req *http.Request) (worker.Job, requestError) {
+	user, err := userFromContext(req.Context())
+	if err != nil {
+		return worker.Job{}, requestError{wrappedError: err, message: "Internal server error", statusCode: http.StatusInternalServerError}
 	}
 
 	requestVars := mux.Vars(req)
 	service := jobService{jobStore: server.jobStore, user: user}
 	job, err := service.getJob(requestVars["jobID"])
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "Failed to find job", http.StatusNotFound)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "Failed to find job", statusCode: http.StatusNotFound}
 	} else if err != nil {
-		server.logger.WithFields(logrus.Fields{
-			"endpoint": req.URL.Path,
-			"user":     user.Username,
-		}).Error(err)
-
-		errorResponse(w, "An unexpected error has occurred", http.StatusInternalServerError)
-		return
+		return worker.Job{}, requestError{wrappedError: err, message: "An unexpected error has occurred", statusCode: http.StatusInternalServerError}
 	}
 
-	jsonResponse(w, job, http.StatusOK)
+	return job, requestError{}
 }

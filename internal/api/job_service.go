@@ -10,17 +10,24 @@ var errUnauthorizedUser = errors.New("The user is not authorized to access this 
 
 type jobService struct {
 	jobStore worker.JobStore
-	user     *User
 }
 
-func (s jobService) startJob(job *worker.Job) (worker.Job, error) {
-	job.User = s.user.Username
-	err := job.Start(s.jobStore)
-	return *job, err
+func newJobService() *jobService {
+	return &jobService{
+		jobStore: &worker.MemoryJobStore{
+			Jobs: make(map[string]worker.Job),
+		},
+	}
 }
 
-func (s jobService) stopJob(jobID string) (worker.Job, error) {
-	job, err := s.getJob(jobID)
+func (s jobService) startJob(config jobActionConfig) (worker.Job, error) {
+	job := worker.Job{Command: config.command, User: config.user.Username}
+	err := (&job).Start(s.jobStore)
+	return job, err
+}
+
+func (s jobService) stopJob(config jobActionConfig) (worker.Job, error) {
+	job, err := s.getJob(config)
 	if err != nil {
 		return job, err
 	}
@@ -30,7 +37,7 @@ func (s jobService) stopJob(jobID string) (worker.Job, error) {
 		return job, err
 	}
 
-	updatedJob, err := s.jobStore.FindJob(jobID)
+	updatedJob, err := s.jobStore.FindJob(config.jobID)
 	if err != nil {
 		return updatedJob, err
 	}
@@ -38,15 +45,21 @@ func (s jobService) stopJob(jobID string) (worker.Job, error) {
 	return updatedJob, nil
 }
 
-func (s jobService) getJob(jobID string) (worker.Job, error) {
-	job, err := s.jobStore.FindJob(jobID)
+func (s jobService) getJob(config jobActionConfig) (worker.Job, error) {
+	job, err := s.jobStore.FindJob(config.jobID)
 	if err != nil {
 		return job, err
 	}
 
-	if job.User != s.user.Username {
+	if job.User != config.user.Username {
 		return worker.Job{}, errUnauthorizedUser
 	}
 
 	return job, nil
+}
+
+type jobActionConfig struct {
+	command string
+	user    *User
+	jobID   string
 }

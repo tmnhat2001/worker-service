@@ -17,8 +17,8 @@ type customHandler func(r *http.Request) (worker.Job, requestError)
 
 // Server represents server that handles API requests
 type Server struct {
-	jobStore    worker.JobStore
 	authService *AuthenticationService
+	jobService  *jobService
 	httpServer  *http.Server
 	logger      *logrus.Logger
 	config      ServerConfig
@@ -32,10 +32,8 @@ func NewServer(config ServerConfig) (*Server, error) {
 	}
 
 	server := &Server{
-		jobStore: &worker.MemoryJobStore{
-			Jobs: make(map[string]worker.Job),
-		},
 		authService: authService,
+		jobService:  newJobService(),
 		logger:      logrus.New(),
 		config:      config,
 	}
@@ -124,8 +122,8 @@ func (server *Server) startJob(req *http.Request) (worker.Job, requestError) {
 		return worker.Job{}, requestError{wrappedError: err, message: "Failed to parse request", statusCode: http.StatusNotFound}
 	}
 
-	service := jobService{jobStore: server.jobStore, user: user}
-	updatedJob, err := service.startJob(&job)
+	config := jobActionConfig{command: job.Command, user: user}
+	updatedJob, err := server.jobService.startJob(config)
 	if err != nil {
 		return worker.Job{}, requestError{wrappedError: err, message: "Failed to start job", statusCode: http.StatusInternalServerError}
 	}
@@ -146,8 +144,8 @@ func (server *Server) stopJob(req *http.Request) (worker.Job, requestError) {
 		return worker.Job{}, requestError{wrappedError: err, message: "Failed to parse request", statusCode: http.StatusNotFound}
 	}
 
-	service := jobService{jobStore: server.jobStore, user: user}
-	job, err := service.stopJob(jobRequest.ID)
+	config := jobActionConfig{user: user, jobID: jobRequest.ID}
+	job, err := server.jobService.stopJob(config)
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
 		return worker.Job{}, requestError{wrappedError: err, message: "Failed to find job", statusCode: http.StatusNotFound}
 	} else if err != nil {
@@ -164,8 +162,8 @@ func (server *Server) getJobResults(req *http.Request) (worker.Job, requestError
 	}
 
 	requestVars := mux.Vars(req)
-	service := jobService{jobStore: server.jobStore, user: user}
-	job, err := service.getJob(requestVars["jobID"])
+	config := jobActionConfig{user: user, jobID: requestVars["jobID"]}
+	job, err := server.jobService.getJob(config)
 	if (err == errUnauthorizedUser) || (err == worker.ErrJobNotFound) {
 		return worker.Job{}, requestError{wrappedError: err, message: "Failed to find job", statusCode: http.StatusNotFound}
 	} else if err != nil {

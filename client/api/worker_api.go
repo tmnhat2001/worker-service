@@ -87,7 +87,10 @@ func parseResponse(response *http.Response) ([]byte, error) {
 
 func errorFromResponse(content []byte) error {
 	var contentMap map[string]string
-	json.Unmarshal(content, &contentMap)
+	err := json.Unmarshal(content, &contentMap)
+	if err != nil {
+		return err
+	}
 
 	message := fmt.Sprintf("Error: %s", contentMap["error"])
 	return errors.New(message)

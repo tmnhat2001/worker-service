@@ -7,6 +7,7 @@ import (
 	"text/template"
 
 	"github.com/tmnhat2001/worker-service/client/api"
+	"github.com/tmnhat2001/worker-service/internal/worker"
 )
 
 const jobTemplate = `Job ID: {{.ID}}
@@ -43,16 +44,24 @@ func handleResponse(response []byte, err error) {
 		return
 	}
 
-	var job job
-	json.Unmarshal(response, &job)
+	var job worker.Job
+	err = json.Unmarshal(response, &job)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	displayJob(job)
 }
 
-func displayJob(job job) {
-	tmpl := template.Must(template.New("job").Parse(jobTemplate))
+func displayJob(job worker.Job) {
+	tmpl, err := template.New("job").Parse(jobTemplate)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-	err := tmpl.Execute(os.Stdout, job)
+	err = tmpl.Execute(os.Stdout, job)
 	if err != nil {
 		fmt.Println(err)
 	}

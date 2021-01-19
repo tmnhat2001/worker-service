@@ -72,19 +72,6 @@ func parseCertificate(certFilePath string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func parseResponse(response *http.Response) ([]byte, error) {
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error reading response body")
-	}
-
-	if response.StatusCode != http.StatusOK {
-		return nil, errorFromResponse(body)
-	}
-
-	return body, nil
-}
-
 func errorFromResponse(content []byte) error {
 	var contentMap map[string]string
 	err := json.Unmarshal(content, &contentMap)
@@ -153,7 +140,16 @@ func (api *WorkerAPI) executeRequest(request *http.Request) ([]byte, error) {
 
 	defer response.Body.Close()
 
-	return parseResponse(response)
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "Error reading response body")
+	}
+
+	if response.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(body)
+	}
+
+	return body, nil
 }
 
 // WorkerAPIConfig provides configurations to set up a WorkerAPI

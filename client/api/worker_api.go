@@ -16,9 +16,8 @@ import (
 
 // WorkerAPI provides a client-side implementation to call the Worker API
 type WorkerAPI struct {
-	username string
-	password string
-	client   *http.Client
+	config WorkerAPIConfig
+	client *http.Client
 }
 
 const (
@@ -34,9 +33,8 @@ func NewWorkerAPI(config WorkerAPIConfig) (*WorkerAPI, error) {
 	}
 
 	return &WorkerAPI{
-		username: config.Username,
-		password: config.Password,
-		client:   client,
+		config: config,
+		client: client,
 	}, nil
 }
 
@@ -64,6 +62,10 @@ func parseCertificate(certFilePath string) (*x509.Certificate, error) {
 	}
 
 	block, _ := pem.Decode(certBytes)
+	if block == nil {
+		return nil, errors.New("no PEM data found in server certificate")
+	}
+
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Unable to parse server's certificate")
@@ -72,14 +74,20 @@ func parseCertificate(certFilePath string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func errorFromResponse(content []byte) error {
+func errorFromResponse(response *http.Response) error {
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		errorMessage := fmt.Sprintf("error reading response body. Response status: %s", response.Status)
+		return errors.Wrap(err, errorMessage)
+	}
+
 	var contentMap map[string]string
-	err := json.Unmarshal(content, &contentMap)
+	err = json.Unmarshal(body, &contentMap)
 	if err != nil {
 		return err
 	}
 
-	message := fmt.Sprintf("Error: %s", contentMap["error"])
+	message := fmt.Sprintf("error: %s", contentMap["error"])
 	return errors.New(message)
 }
 
@@ -131,7 +139,7 @@ func (api *WorkerAPI) GetJob(jobID string) ([]byte, error) {
 }
 
 func (api *WorkerAPI) executeRequest(request *http.Request) ([]byte, error) {
-	request.SetBasicAuth(api.username, api.password)
+	request.SetBasicAuth(api.config.Username, api.config.Password)
 
 	response, err := api.client.Do(request)
 	if err != nil {
@@ -140,13 +148,13 @@ func (api *WorkerAPI) executeRequest(request *http.Request) ([]byte, error) {
 
 	defer response.Body.Close()
 
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "Error reading response body")
+	if response.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(response)
 	}
 
-	if response.StatusCode != http.StatusOK {
-		return nil, errorFromResponse(body)
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "error reading response body")
 	}
 
 	return body, nil
